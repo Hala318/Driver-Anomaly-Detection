@@ -5,7 +5,7 @@ import spatial_transforms
 from model import generate_model
 import argparse
 from test import get_normal_vector, split_acc_diff_threshold, cal_score
-from utils import adjust_learning_rate, AverageMeter, Logger, get_fusion_label, l2_normalize, post_process, evaluate, \
+from utils import adjust_learning_rate, AverageMeter, get_fusion_label, l2_normalize, post_process, evaluate, \
     get_score
 from NCEAverage import NCEAverage
 from NCECriterion import NCECriterion
@@ -15,7 +15,7 @@ from models import resnet, shufflenet, shufflenetv2, mobilenet, mobilenetv2
 import ast
 import numpy as np
 from dataset_test import DAD_Test
-
+from torch.utils.tensorboard import SummaryWriter
 
 def parse_args():
     parser = argparse.ArgumentParser(description='DAD training on Videos')
@@ -131,21 +131,34 @@ def train(train_normal_loader, train_anormal_loader, model, model_head, nce_aver
         prob_meter.update(probs.item(), outs.size(0))
 
         # =================logging=====================
-        batch_logger.log({
-            'epoch': epoch,
-            'batch': batch,
-            'loss': losses.val,
-            'probs': prob_meter.val,
-            'lr': optimizer.param_groups[0]['lr']
-        })
+        # batch_logger.log({
+        #     'epoch': epoch,
+        #     'batch': batch,
+        #     'loss': losses.val,
+        #     'probs': prob_meter.val,
+        #     'lr': optimizer.param_groups[0]['lr']
+        # })
+        # writer.add_scalar('Batch/Loss', losses.val, epoch * len(train_loader) + batch_idx)
+        # writer.add_scalar('Batch/Probs', prob_meter.val, epoch * len(train_loader) + batch_idx)
+        # writer.add_scalar('Batch/Learning_Rate', optimizer.param_groups[0]['lr'], epoch * len(train_loader) + batch_idx)
+        batch_writer.add_scalar('Loss', losses.val, epoch * len(train_loader) + batch_idx)
+        batch_writer.add_scalar('Probs', prob_meter.val, epoch * len(train_loader) + batch_idx)
+        batch_writer.add_scalar('Learning_Rate', optimizer.param_groups[0]['lr'], epoch * len(train_loader) + batch_idx)
+        
         print(
             f'Training Process is running: {epoch}/{args.epochs}  | Batch: {batch} | Loss: {losses.val} ({losses.avg}) | Probs: {prob_meter.val} ({prob_meter.avg})')
-    epoch_logger.log({
-        'epoch': epoch,
-        'loss': losses.avg,
-        'probs': prob_meter.avg,
-        'lr': optimizer.param_groups[0]['lr']
-    })
+    # epoch_logger.log({
+    #     'epoch': epoch,
+    #     'loss': losses.avg,
+    #     'probs': prob_meter.avg,
+    #     'lr': optimizer.param_groups[0]['lr']
+    # })
+    # writer.add_scalar('Epoch/Loss', losses.avg, epoch)
+    # writer.add_scalar('Epoch/Probs', prob_meter.avg, epoch)
+    # writer.add_scalar('Epoch/Learning_Rate', optimizer.param_groups[0]['lr'], epoch)
+    epoch_writer.add_scalar('Loss', losses.avg, epoch)
+    epoch_writer.add_scalar('Probs', prob_meter.avg, epoch)
+    epoch_writer.add_scalar('Learning_Rate', optimizer.param_groups[0]['lr'], epoch)
     return memory_bank, losses.avg
 
 
@@ -327,15 +340,21 @@ if __name__ == '__main__':
 
         print(
             "==========================================!!!START TRAINING!!!==========================================")
-        cudnn.benchmark = True
-        batch_logger = Logger(os.path.join(args.log_folder, 'batch.log'), ['epoch', 'batch', 'loss', 'probs', 'lr'],
-                              args.log_resume)
-        epoch_logger = Logger(os.path.join(args.log_folder, 'epoch.log'), ['epoch', 'loss', 'probs', 'lr'],
-                              args.log_resume)
-        val_logger = Logger(os.path.join(args.log_folder, 'val.log'),
-                            ['epoch', 'accuracy', 'normal_acc', 'anormal_acc', 'threshold', 'acc_list',
-                             'normal_acc_list', 'anormal_acc_list'], args.log_resume)
+        # Initialize TensorBoard writer
+        writer = SummaryWriter(os.path.join(args.log_folder, 'tensorboard_logs'))
 
+        cudnn.benchmark = True
+        
+        # batch_logger = Logger(os.path.join(args.log_folder, 'batch.log'), ['epoch', 'batch', 'loss', 'probs', 'lr'],
+        #                       args.log_resume)
+        # epoch_logger = Logger(os.path.join(args.log_folder, 'epoch.log'), ['epoch', 'loss', 'probs', 'lr'],
+        #                       args.log_resume)
+        # val_logger = Logger(os.path.join(args.log_folder, 'val.log'),
+        #                     ['epoch', 'accuracy', 'normal_acc', 'anormal_acc', 'threshold', 'acc_list',
+        #                      'normal_acc_list', 'anormal_acc_list'], args.log_resume)
+        batch_writer = SummaryWriter(os.path.join(args.log_folder, 'batch_logs'))
+        epoch_writer = SummaryWriter(os.path.join(args.log_folder, 'epoch_logs'))
+        val_writer = SummaryWriter(os.path.join(args.log_folder, 'epoch_logs'))
         for epoch in range(begin_epoch, begin_epoch + args.epochs + 1):
             memory_bank, loss = train(train_normal_loader, train_anormal_loader, model, model_head, nce_average,
                                       criterion, optimizer, epoch, args, batch_logger, epoch_logger, memory_bank)
@@ -354,16 +373,27 @@ if __name__ == '__main__':
                     f'Epoch: {epoch}/{args.epochs} | Accuracy: {accuracy} | Normal Acc: {acc_n} | Anormal Acc: {acc_a} | Threshold: {best_threshold}')
                 print(
                     "==========================================!!!Logging!!!==========================================")
-                val_logger.log({
-                    'epoch': epoch,
-                    'accuracy': accuracy * 100,
-                    'normal_acc': acc_n * 100,
-                    'anormal_acc': acc_a * 100,
-                    'threshold': best_threshold,
-                    'acc_list': acc_list,
-                    'normal_acc_list': acc_n_list,
-                    'anormal_acc_list': acc_a_list
-                })
+                # val_logger.log({
+                #     'epoch': epoch,
+                #     'accuracy': accuracy * 100,
+                #     'normal_acc': acc_n * 100,
+                #     'anormal_acc': acc_a * 100,
+                #     'threshold': best_threshold,
+                #     'acc_list': acc_list,
+                #     'normal_acc_list': acc_n_list,
+                #     'anormal_acc_list': acc_a_list
+                # })
+                # Logging to TensorBoard
+                val_writer.add_scalar('Validation/Accuracy', accuracy * 100, epoch)
+                val_writer.add_scalar('Validation/Normal_Accuracy', acc_n * 100, epoch)
+                val_writer.add_scalar('Validation/Anormal_Accuracy', acc_a * 100, epoch)
+                val_writer.add_scalar('Validation/Threshold', best_threshold, epoch)
+
+                # Logging histograms
+                val_writer.add_histogram('Validation/Acc_List', acc_list, epoch)
+                val_writer.add_histogram('Validation/Normal_Acc_List', acc_n_list, epoch)
+                val_writer.add_histogram('Validation/Anormal_Acc_List', acc_a_list, epoch)
+                
                 if accuracy > best_acc:
                     best_acc = accuracy
                     print(
@@ -663,4 +693,6 @@ if __name__ == '__main__':
             best_acc, best_threshold, AUC = evaluate(score, gt, False)
             print(
                 f'View: {mode_name}(post-processed):       Best Acc: {round(best_acc, 2)} | Threshold: {round(best_threshold, 2)} | AUC: {round(AUC, 4)} \n')
-
+batch_writer.close()
+epoch_writer.close()
+val_writer.close()
